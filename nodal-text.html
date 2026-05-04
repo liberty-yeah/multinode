@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Node Manager</title>
+<style>
+    :root {
+        --bg: #1e1e1e;
+        --fg: #d4d4d4;
+        --btn: #333;
+        --btn-hover: #444;
+        --border: #555;
+        --danger: #8b0000;
+        --action: #007acc;
+    }
+    body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    #toolbar {
+        background: #252526;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        border-bottom: 1px solid var(--border);
+    }
+    .tool-group {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .group-label {
+        font-size: 0.8em;
+        color: #888;
+        text-transform: uppercase;
+        margin-right: 5px;
+        border-right: 1px solid var(--border);
+        padding-right: 10px;
+    }
+    button {
+        background: var(--btn);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        padding: 5px 10px;
+        cursor: pointer;
+        border-radius: 3px;
+    }
+    button:hover {
+        background: var(--btn-hover);
+    }
+    .btn-action { background: var(--action); }
+    .btn-reset { background: var(--danger); font-weight: bold; }
+    .btn-reset:hover { background: #b22222; }
+    
+    #main {
+        flex: 1;
+        overflow: auto;
+        padding: 20px;
+    }
+    .node {
+        width: 100%;
+        box-sizing: border-box;
+        border: 2px solid var(--border);
+        margin-bottom: 10px;
+        padding: 10px;
+        background: #2d2d2d;
+        transition: border-color 0.2s;
+    }
+    .node.sel-1 { border-color: #007acc !important; }
+    .node.cut-active { border-color: #f44336 !important; }
+    .node.copy-active { border-color: #9c27b0 !important; }
+    .node.jump-host { border-color: #ffeb3b !important; }
+
+    .heading-box, .jumplist-box { display: none; margin-bottom: 5px; }
+    .show-h .heading-box { display: block; }
+    .show-j .jumplist-box { display: block; }
+
+    .node-row {
+        display: flex;
+        gap: 5px;
+        align-items: stretch;
+    }
+    .body {
+        flex: 1;
+        min-width: 0;
+        background: #1e1e1e;
+        color: var(--fg);
+        border: 1px solid var(--border);
+        padding: 5px;
+        resize: vertical;
+        height: 80px;
+        line-height: 1.5em;
+    }
+    .body.nowrap {
+        white-space: pre;
+        overflow-x: auto;
+    }
+    .node-side-btns {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .node-side-btns button {
+        padding: 2px 5px;
+        font-size: 0.7em;
+        flex: 1;
+    }
+
+    .heading {
+        width: 100%;
+        box-sizing: border-box;
+        background: #1e1e1e;
+        color: var(--fg);
+        border: 1px solid var(--border);
+        padding: 5px;
+        font-weight: bold;
+    }
+    .jumplist {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        padding: 5px;
+        background: #1e1e1e;
+        border: 1px solid var(--border);
+        min-height: 20px;
+    }
+    .jump-btn {
+        background: #007acc;
+        font-size: 0.8em;
+    }
+    .children {
+        margin-left: 30px;
+        border-left: 1px dashed var(--border);
+        padding-left: 10px;
+        min-height: 5px;
+        margin-top: 5px;
+    }
+    .collapsed .node-row, .collapsed .children {
+        display: none;
+    }
+    .semi-collapsed .node-row {
+        display: none;
+    }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+    <div class="tool-group">
+        <span class="group-label">Global Visibility</span>
+        <button id="btnToggleAllHeaders">HEADERS</button>
+        <button id="btnToggleAllJumps">JUMPLINKS</button>
+    </div>
+
+    <div class="tool-group">
+        <span class="group-label">Structure</span>
+        <button id="btnAddRoot">+ Root</button>
+        <button id="btnAddSibling">+ Sibling</button>
+        <button id="btnAddChild">+ Child</button>
+        <button id="btnCollapseAll">Collapse All</button>
+        <button id="btnSemiCollapse">Semi Collapse</button>
+        <button id="btnUncollapseAll">Uncollapse All</button>
+        <button id="btnReset" class="btn-reset">Reset Everything</button>
+    </div>
+    
+    <div class="tool-group">
+        <span class="group-label">Selected Node Actions</span>
+        <button onclick="globalExec('mv-up')">↑</button>
+        <button onclick="globalExec('mv-dn')">↓</button>
+        <button onclick="globalExec('mv-out')">←</button>
+        <button onclick="globalExec('mv-in')">→</button>
+        <button onclick="globalExec('dp-up')">Dup ↑</button>
+        <button onclick="globalExec('dp-dn')">Dup ↓</button>
+        <button onclick="globalExec('ct')">Cut</button>
+        <button onclick="globalExec('cp')">Copy</button>
+        <button onclick="globalExec('pt-up')">Paste ↑</button>
+        <button onclick="globalExec('pt-dn')">Paste ↓</button>
+        <button onclick="globalExec('pt-in')">Paste In</button>
+        <button onclick="globalExec('dl-pl')">Del Pull</button>
+        <button onclick="globalExec('dl-al')" style="color:#ff8080">Del All</button>
+        <button onclick="globalExec('toggle-collapse')" class="btn-action">Collapse/Expand</button>
+        <button onclick="globalExec('toggle-wrap')" class="btn-action">Toggle Wrap</button>
+        <button onclick="globalExec('add-jump')" class="btn-action">+ Add Jump</button>
+    </div>
+
+    <div class="tool-group">
+        <span class="group-label">Settings & Files</span>
+        <label><input type="checkbox" id="chkWarnDel" checked> Warnings</label>
+        <button id="btnUniWrap">Universal Wrap</button>
+        <button id="btnSaveJson">Save JSON</button>
+        <button id="btnLoadJson">Load JSON</button>
+        <input type="file" id="fileLoad" style="display:none" accept=".json">
+    </div>
+</div>
+
+<div id="main"></div>
+
+<script>
+    let sel = [];
+    let clipboard = null;
+    let jumpHost = null;
+    let isSaving = false;
+    let uniWrapState = false;
+    let globalHeadersVisible = false;
+    let globalJumpsVisible = false;
+
+    const main = document.getElementById('main');
+    const chkWarnDel = document.getElementById('chkWarnDel');
+
+    function uuid() {
+        return Date.now().toString(36) + Math.random().toString(36).substring(2);
+    }
+
+    function save() {
+        if (isSaving) return;
+        const data = serialize(main);
+        localStorage.setItem('nodeData', JSON.stringify(data));
+        localStorage.setItem('nodePrefs', JSON.stringify({
+            warnDel: chkWarnDel.checked,
+            ghv: globalHeadersVisible,
+            gjv: globalJumpsVisible
+        }));
+    }
+
+    function serialize(container) {
+        return Array.from(container.children).map(node => {
+            const jumps = Array.from(node.querySelector('.jumplist').children)
+                .filter(b => b.classList.contains('jump-link'))
+                .map(b => b.dataset.jid);
+            return {
+                id: node.dataset.id,
+                h: node.querySelector('.heading').value,
+                b: node.querySelector('.body').value,
+                c: node.classList.contains('collapsed'),
+                sc: node.classList.contains('semi-collapsed'),
+                w: node.querySelector('.body').classList.contains('nowrap'),
+                sh: node.classList.contains('show-h'),
+                sj: node.classList.contains('show-j'),
+                j: jumps,
+                kids: serialize(node.querySelector('.children'))
+            };
+        });
+    }
+
+    function load() {
+        isSaving = true;
+        main.innerHTML = '';
+        sel = [];
+        clipboard = null;
+        jumpHost = null;
+        
+        try {
+            const prefsStr = localStorage.getItem('nodePrefs');
+            if (prefsStr) {
+                const prefs = JSON.parse(prefsStr);
+                chkWarnDel.checked = prefs.warnDel;
+                globalHeadersVisible = prefs.ghv || false;
+                globalJumpsVisible = prefs.gjv || false;
+            }
+            
+            const dataStr = localStorage.getItem('nodeData');
+            if (dataStr) {
+                const data = JSON.parse(dataStr);
+                data.forEach(d => main.appendChild(createNodeElements(d)));
+                rebuildJumps();
+            }
+        } catch(e) {}
+        isSaving = false;
+        updateUI();
+    }
+
+    function createNodeElements(d) {
+        const id = d && d.id ? d.id : uuid();
+        const node = document.createElement('div');
+        node.className = 'node';
+        node.dataset.id = id;
+        if (d && d.c) node.classList.add('collapsed');
+        if (d && d.sc) node.classList.add('semi-collapsed');
+        if (d && d.sh) node.classList.add('show-h');
+        if (d && d.sj) node.classList.add('show-j');
+
+        const headBox = document.createElement('div');
+        headBox.className = 'heading-box';
+        const heading = document.createElement('input');
+        heading.className = 'heading';
+        heading.type = 'text';
+        heading.value = d && d.h ? d.h : 'New Node';
+        headBox.appendChild(heading);
+
+        const collArea = document.createElement('div');
+        collArea.className = 'collapsible-area';
+
+        const nodeRow = document.createElement('div');
+        nodeRow.className = 'node-row';
+
+        const body = document.createElement('textarea');
+        body.className = 'body';
+        if (d && d.w) body.classList.add('nowrap');
+        body.value = d && d.b ? d.b : '';
+
+        nodeRow.appendChild(body);
+
+        const jumpBox = document.createElement('div');
+        jumpBox.className = 'jumplist-box';
+        const jumplist = document.createElement('div');
+        jumplist.className = 'jumplist';
+        jumpBox.appendChild(jumplist);
+
+        if (d && d.j) {
+            jumplist.dataset.pendingJumps = JSON.stringify(d.j);
+        }
+
+        const kids = document.createElement('div');
+        kids.className = 'children';
+
+        collArea.appendChild(nodeRow);
+        collArea.appendChild(jumpBox);
+        collArea.appendChild(kids);
+
+        node.appendChild(headBox);
+        node.appendChild(collArea);
+
+        if (d && d.kids) {
+            d.kids.forEach(kd => kids.appendChild(createNodeElements(kd)));
+        }
+
+        node.onclick = (e) => {
+            e.stopPropagation();
+            if (jumpHost && jumpHost !== node) {
+                addJump(jumpHost, node.dataset.id);
+                jumpHost = null;
+                updateUI();
+                save();
+                return;
+            }
+            if (e.ctrlKey) {
+                if (sel.includes(node)) {
+                    sel = sel.filter(n => n !== node);
+                } else {
+                    sel.push(node);
+                }
+            } else {
+                sel = [node];
+            }
+            updateUI();
+        };
+
+        heading.oninput = save;
+        body.oninput = save;
+
+        return node;
+    }
+
+    function globalExec(cmd) {
+        if (!sel[0]) return;
+        execCmd(cmd, sel[0]);
+    }
+
+    function addJump(hostNode, targetId) {
+        const targetNode = document.querySelector(`.node[data-id="${targetId}"]`);
+        if (!targetNode) return;
+        
+        const jl = hostNode.querySelector('.jumplist');
+        const existing = Array.from(jl.children).find(c => c.dataset.jid === targetId);
+        if (existing) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'jump-link jump-btn';
+        btn.dataset.jid = targetId;
+        const targetHeading = targetNode.querySelector('.heading').value || 'Node';
+        btn.textContent = '→ ' + targetHeading;
+        
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const t = document.querySelector(`.node[data-id="${targetId}"]`);
+            if (t) {
+                sel = [t];
+                updateUI();
+                t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        };
+        
+        btn.oncontextmenu = (e) => {
+            e.preventDefault();
+            btn.remove();
+            save();
+        };
+
+        jl.appendChild(btn);
+    }
+
+    function rebuildJumps() {
+        document.querySelectorAll('.jumplist').forEach(jl => {
+            if (jl.dataset.pendingJumps) {
+                const arr = JSON.parse(jl.dataset.pendingJumps);
+                arr.forEach(id => addJump(jl.closest('.node'), id));
+                delete jl.dataset.pendingJumps;
+            }
+        });
+    }
+
+    function updateUI() {
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.remove('sel-1', 'jump-host', 'cut-active', 'copy-active');
+            const hl = n.querySelector('.heading');
+            document.querySelectorAll(`.jump-link[data-jid="${n.dataset.id}"]`).forEach(btn => {
+                btn.textContent = '→ ' + (hl.value || 'Node');
+            });
+        });
+        if (sel[0]) sel[0].classList.add('sel-1');
+        if (jumpHost) jumpHost.classList.add('jump-host');
+        if (clipboard) {
+            const orig = document.querySelector(`.node[data-id="${clipboard.origId}"]`);
+            if (orig && clipboard.type === 'cut') orig.classList.add('cut-active');
+            if (orig && clipboard.type === 'copy') orig.classList.add('copy-active');
+        }
+    }
+
+    function execCmd(cmd, node) {
+        const p = node.parentNode;
+        const isRoot = p === main;
+        
+        if (cmd === 'mv-up' && node.previousElementSibling) {
+            p.insertBefore(node, node.previousElementSibling);
+        }
+        else if (cmd === 'mv-dn' && node.nextElementSibling) {
+            p.insertBefore(node, node.nextElementSibling.nextElementSibling);
+        }
+        else if (cmd === 'mv-out' && !isRoot) {
+            const outerNode = p.closest('.node');
+            outerNode.parentNode.insertBefore(node, outerNode.nextElementSibling);
+        }
+        else if (cmd === 'mv-in' && node.previousElementSibling) {
+            node.previousElementSibling.querySelector('.children').appendChild(node);
+        }
+        else if (cmd === 'dp-up' || cmd === 'dp-dn') {
+            const state = serialize(document.createElement('div').appendChild(node.cloneNode(true)).parentNode)[0];
+            const cleanState = resetIds(state);
+            const clone = createNodeElements(cleanState);
+            if (cmd === 'dp-up') p.insertBefore(clone, node);
+            else p.insertBefore(clone, node.nextElementSibling);
+            rebuildJumps();
+        }
+        else if (cmd === 'dl-pl') {
+            if (chkWarnDel.checked && !confirm('Delete and pull subnodes up?')) return;
+            const kids = Array.from(node.querySelector('.children').children);
+            kids.forEach(k => p.insertBefore(k, node));
+            removeNode(node);
+        }
+        else if (cmd === 'dl-al') {
+            if (chkWarnDel.checked && !confirm('Delete with all subnodes?')) return;
+            removeNode(node);
+        }
+        else if (cmd === 'ct' || cmd === 'cp') {
+            clipboard = {
+                type: cmd === 'ct' ? 'cut' : 'copy',
+                data: serialize(document.createElement('div').appendChild(node.cloneNode(true)).parentNode)[0],
+                origId: node.dataset.id
+            };
+        }
+        else if (cmd.startsWith('pt-') && clipboard) {
+            const data = (clipboard.type === 'cut') ? clipboard.data : resetIds(clipboard.data);
+            const nu = createNodeElements(data);
+            if (cmd === 'pt-up') p.insertBefore(nu, node);
+            else if (cmd === 'pt-dn') p.insertBefore(nu, node.nextElementSibling);
+            else if (cmd === 'pt-in') node.querySelector('.children').appendChild(nu);
+            if (clipboard.type === 'cut') {
+                const orig = document.querySelector(`.node[data-id="${clipboard.origId}"]`);
+                if (orig) removeNode(orig);
+                clipboard = null;
+            }
+            rebuildJumps();
+        }
+        else if (cmd === 'toggle-collapse') {
+            node.classList.remove('semi-collapsed');
+            node.classList.toggle('collapsed');
+        }
+        else if (cmd === 'toggle-wrap') {
+            node.querySelector('.body').classList.toggle('nowrap');
+        }
+        else if (cmd === 'add-jump') {
+            jumpHost = (jumpHost === node) ? null : node;
+        }
+        updateUI();
+        save();
+    }
+
+    function removeNode(node) {
+        if (sel.includes(node)) sel = sel.filter(n => n !== node);
+        if (jumpHost === node) jumpHost = null;
+        document.querySelectorAll(`.jump-link[data-jid="${node.dataset.id}"]`).forEach(btn => btn.remove());
+        node.remove();
+    }
+
+    function resetIds(d) {
+        d.id = uuid();
+        d.kids = d.kids.map(k => resetIds(k));
+        return d;
+    }
+
+    document.getElementById('btnToggleAllHeaders').onclick = () => {
+        globalHeadersVisible = !globalHeadersVisible;
+        document.querySelectorAll('.node').forEach(n => {
+            if (globalHeadersVisible) n.classList.add('show-h');
+            else n.classList.remove('show-h');
+        });
+        save();
+    };
+
+    document.getElementById('btnToggleAllJumps').onclick = () => {
+        globalJumpsVisible = !globalJumpsVisible;
+        document.querySelectorAll('.node').forEach(n => {
+            if (globalJumpsVisible) n.classList.add('show-j');
+            else n.classList.remove('show-j');
+        });
+        save();
+    };
+
+    document.getElementById('btnAddRoot').onclick = () => {
+        const n = createNodeElements();
+        main.appendChild(n);
+        sel = [n];
+        updateUI();
+        save();
+    };
+
+    document.getElementById('btnAddSibling').onclick = () => {
+        if (sel[0]) {
+            const n = createNodeElements();
+            sel[0].parentNode.insertBefore(n, sel[0].nextElementSibling);
+            sel = [n];
+            updateUI();
+            save();
+        } else { document.getElementById('btnAddRoot').click(); }
+    };
+
+    document.getElementById('btnAddChild').onclick = () => {
+        if (sel[0]) {
+            const n = createNodeElements();
+            sel[0].querySelector('.children').appendChild(n);
+            sel = [n];
+            updateUI();
+            save();
+        } else { document.getElementById('btnAddRoot').click(); }
+    };
+
+    document.getElementById('btnCollapseAll').onclick = () => {
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.remove('semi-collapsed');
+            n.classList.add('collapsed');
+        });
+        save();
+    };
+
+    document.getElementById('btnSemiCollapse').onclick = () => {
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.add('show-h'); 
+            n.classList.remove('collapsed');
+            n.classList.add('semi-collapsed');
+        });
+        save();
+    };
+
+    document.getElementById('btnUncollapseAll').onclick = () => {
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.remove('collapsed');
+            n.classList.remove('semi-collapsed');
+        });
+        save();
+    };
+
+    document.getElementById('btnUniWrap').onclick = () => {
+        uniWrapState = !uniWrapState;
+        document.querySelectorAll('.body').forEach(b => {
+            if (uniWrapState) b.classList.remove('nowrap');
+            else b.classList.add('nowrap');
+        });
+        save();
+    };
+
+    document.getElementById('btnReset').onclick = () => {
+        if (confirm('Delete EVERYTHING?')) {
+            main.innerHTML = '';
+            sel = []; clipboard = null; jumpHost = null;
+            save(); updateUI();
+        }
+    };
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { sel = []; jumpHost = null; updateUI(); }
+        
+        if (sel[0] && e.altKey) {
+            if (e.code === 'KeyH') {
+                e.preventDefault();
+                sel[0].classList.toggle('show-h');
+                save();
+            }
+            if (e.code === 'KeyJ') {
+                e.preventDefault();
+                sel[0].classList.toggle('show-j');
+                save();
+            }
+        }
+    });
+
+    main.onclick = (e) => { if (e.target === main) { sel = []; updateUI(); } };
+
+    document.getElementById('btnSaveJson').onclick = () => {
+        const blob = new Blob([JSON.stringify(serialize(main), null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'nodes.json'; a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    document.getElementById('btnLoadJson').onclick = () => { document.getElementById('fileLoad').click(); };
+    document.getElementById('fileLoad').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            localStorage.setItem('nodeData', evt.target.result);
+            load(); e.target.value = '';
+        };
+        reader.readAsText(file);
+    };
+
+    window.addEventListener('wheel', (e) => {
+        const isCapsLock = e.getModifierState('CapsLock');
+        if (isCapsLock) {
+            const isMouseWheel = Math.abs(e.deltaX) === 0 || (e.deltaX === 0 && e.deltaY !== 0);
+            if (isMouseWheel) {
+                const scrollContainer = e.target.closest('.body') || main;
+                if (scrollContainer) {
+                    e.preventDefault();
+                    scrollContainer.scrollLeft += e.deltaY;
+                }
+            }
+        }
+    }, { passive: false });
+
+    load();
+</script>
+</body>
+</html>
